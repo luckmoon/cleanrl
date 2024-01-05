@@ -1,4 +1,5 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppopy
+# ref: https://iclr-blog-track.github.io/2022/03/25/ppo-implementation-details/
 import os
 import random
 import time
@@ -182,6 +183,7 @@ if __name__ == "__main__":
     next_obs = torch.Tensor(next_obs).to(device)
     next_done = torch.zeros(args.num_envs).to(device)
 
+    # 这个迭代其实是迭代的采集数据多少次
     for iteration in range(1, args.num_iterations + 1):
         # Annealing the rate if instructed to do so.
         if args.anneal_lr:
@@ -189,6 +191,7 @@ if __name__ == "__main__":
             lrnow = frac * args.learning_rate
             optimizer.param_groups[0]["lr"] = lrnow
 
+        # for部分用来收集一条轨迹（也可能是num_env条）
         for step in range(0, args.num_steps):
             global_step += args.num_envs
             obs[step] = next_obs
@@ -196,6 +199,7 @@ if __name__ == "__main__":
 
             # ALGO LOGIC: action logic
             with torch.no_grad():
+                # value 是评委给出的得分
                 action, logprob, _, value = agent.get_action_and_value(next_obs)
                 values[step] = value.flatten()
             actions[step] = action
@@ -227,7 +231,10 @@ if __name__ == "__main__":
                     nextnonterminal = 1.0 - dones[t + 1]
                     nextvalues = values[t + 1]
                 delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
+                # gae对优势函数的估计
                 advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
+            # returns使用gae对优势函数的估计，或者是gae论文中的psi的估计，粗糙地可以当做openai强化学习入门的那个R
+            # returns又好像是个自举，TODO
             returns = advantages + values
 
         # flatten the batch
@@ -238,6 +245,9 @@ if __name__ == "__main__":
         b_returns = returns.reshape(-1)
         b_values = values.reshape(-1)
 
+        # 重复利用收集好的数据
+        # 也就是说这个算法其实是收集好一部分数据，然后利用这部分数据更新多少次参数
+        # 然后再重新收集数据，再利用这些新数据更新多少次
         # Optimizing the policy and value network
         b_inds = np.arange(args.batch_size)
         clipfracs = []
@@ -282,6 +292,10 @@ if __name__ == "__main__":
                     v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                 entropy_loss = entropy.mean()
+                # 这个loss的最后一部分v_loss * args.vf_coef是critic的损失
+                # pg_loss - args.ent_coef * entropy_loss部分是PPO的损失
+                # pg_loss 对应李宏毅的PPO2部分：https://hackmd.io/@shaoeChen/Bywb8YLKS/https%3A%2F%2Fhackmd.io%2F%40shaoeChen%2FSyez2AmFr
+                # args.ent_coef * entropy_loss 好像是PPO1的KL部分
                 loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
 
                 optimizer.zero_grad()
