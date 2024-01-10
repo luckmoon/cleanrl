@@ -234,7 +234,6 @@ if __name__ == "__main__":
                 # gae对优势函数的估计
                 advantages[t] = lastgaelam = delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
             # returns使用gae对优势函数的估计，或者是gae论文中的psi的估计，粗糙地可以当做openai强化学习入门的那个R
-            # returns又好像是个自举，TODO
             returns = advantages + values
 
         # flatten the batch
